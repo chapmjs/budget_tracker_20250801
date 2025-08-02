@@ -701,10 +701,7 @@ budget_data <- reactive({
   output$category_monthly_plot <- renderPlotly({
     data <- budget_data()
     
-    if (nrow(data) == 0) {
-      plot_ly() %>%
-        layout(title = "No data available")
-    } else {
+    if (nrow(data) > 0) {
       monthly_category <- data %>%
         filter(amount < 0) %>%
         mutate(
@@ -714,23 +711,10 @@ budget_data <- reactive({
         group_by(month, budget_category) %>%
         summarise(Total = sum(amount, na.rm = TRUE), .groups = "drop")
       
-      # Create a complete grid of months and categories
-      all_months <- seq(min(monthly_category$month), max(monthly_category$month), by = "month")
-      all_categories <- unique(monthly_category$budget_category)
-      
-      complete_data <- expand_grid(month = all_months, budget_category = all_categories) %>%
-        left_join(monthly_category, by = c("month", "budget_category")) %>%
-        replace_na(list(Total = 0))
-      
-      plot_ly(complete_data, x = ~month, y = ~Total, color = ~budget_category, 
-              type = 'bar') %>%
-        layout(
-          title = "Monthly Spending by Category",
-          xaxis = list(title = "Month"),
-          yaxis = list(title = "Amount ($)"),
-          barmode = "stack",
-          showlegend = TRUE
-        )
+      plot_ly(monthly_category, x = ~month, y = ~Total, color = ~budget_category, type = 'bar') %>%
+        layout(title = "Monthly Spending by Category", barmode = "stack")
+    } else {
+      plot_ly() %>% layout(title = "No data available")
     }
   })
   
