@@ -357,63 +357,59 @@ server <- function(input, output, session) {
   )
   
   # Fetch budget data from database
-  budget_data <- reactive({
-    values$data_trigger
+budget_data <- reactive({
+  values$data_trigger
+  
+  tryCatch({
+    # Build query with direct value insertion instead of parameters
+    query <- "SELECT * FROM budget_transactions WHERE 1=1"
     
-    tryCatch({
-      # Build query with filters
-      query <- "SELECT * FROM budget_transactions WHERE 1=1"
-      params <- list()
-      
-      # Date range filter
-      if (!is.null(input$date_range)) {
-        query <- paste0(query, " AND date >= ? AND date <= ?")
-        params <- append(params, list(
-          as.character(input$date_range[1]),
-          as.character(input$date_range[2])
-        ))
-      }
-      
-      # Category filter
-      if (!"All" %in% input$filter_category && length(input$filter_category) > 0) {
-        placeholders <- paste0(rep("?", length(input$filter_category)), collapse = ",")
-        query <- paste0(query, " AND budget_category IN (", placeholders, ")")
-        params <- append(params, as.list(input$filter_category))
-      }
-      
-      # Buyer filter
-      if (!"All" %in% input$filter_buyer && length(input$filter_buyer) > 0) {
-        placeholders <- paste0(rep("?", length(input$filter_buyer)), collapse = ",")
-        query <- paste0(query, " AND buyer IN (", placeholders, ")")
-        params <- append(params, as.list(input$filter_buyer))
-      }
-      
-      query <- paste0(query, " ORDER BY date DESC, id DESC")
-      
-      # Execute query
-      if (length(params) > 0) {
-        result <- dbGetQuery(pool, query, params = params)
-      } else {
-        result <- dbGetQuery(pool, query)
-      }
-      
-      # Convert to tibble and parse dates
-      if (nrow(result) > 0) {
-        result %>%
-          as_tibble() %>%
-          mutate(
-            date = as.Date(date),
-            amount = as.numeric(amount)
-          )
-      } else {
-        tibble()
-      }
-      
-    }, error = function(e) {
-      showNotification(paste("Error fetching data:", e$message), type = "error")
+    # Date range filter
+    if (!is.null(input$date_range) && length(input$date_range) == 2) {
+      start_date <- as.character(input$date_range[1])
+      end_date <- as.character(input$date_range[2])
+      query <- paste0(query, " AND date >= '", start_date, "' AND date <= '", end_date, "'")
+    }
+    
+    # Category filter
+    if (!"All" %in% input$filter_category && length(input$filter_category) > 0) {
+      # Escape single quotes and wrap in quotes
+      categories <- paste0("'", gsub("'", "''", input$filter_category), "'", collapse = ",")
+      query <- paste0(query, " AND budget_category IN (", categories, ")")
+    }
+    
+    # Buyer filter
+    if (!"All" %in% input$filter_buyer && length(input$filter_buyer) > 0) {
+      # Escape single quotes and wrap in quotes
+      buyers <- paste0("'", gsub("'", "''", input$filter_buyer), "'", collapse = ",")
+      query <- paste0(query, " AND buyer IN (", buyers, ")")
+    }
+    
+    query <- paste0(query, " ORDER BY date DESC, id DESC")
+    
+    # Execute query without parameters
+    result <- dbGetQuery(pool, query)
+    
+    # Convert to tibble and parse dates
+    if (nrow(result) > 0) {
+      result %>%
+        as_tibble() %>%
+        mutate(
+          date = as.Date(date),
+          amount = as.numeric(amount)
+        )
+    } else {
       tibble()
-    })
+    }
+    
+  }, error = function(e) {
+    showNotification(paste("Error fetching data:", e$message), type = "error")
+    # Also print to console for debugging
+    cat("SQL Error:", e$message, "\n")
+    cat("Last query attempted:", query, "\n")
+    tibble()
   })
+})
   
   # Refresh data
   observeEvent(input$refresh_data, {
@@ -427,7 +423,7 @@ server <- function(input, output, session) {
     income <- if(nrow(data) > 0) sum(data$amount[data$amount > 0], na.rm = TRUE) else 0
     
     valueBox(
-      value = sprintf("$%,.2f", income),
+      value = sprintf("$%.2f", income),
       subtitle = "Total Income",
       icon = icon("arrow-up"),
       color = "green"
@@ -439,7 +435,7 @@ server <- function(input, output, session) {
     expenses <- if(nrow(data) > 0) abs(sum(data$amount[data$amount < 0], na.rm = TRUE)) else 0
     
     valueBox(
-      value = sprintf("$%,.2f", expenses),
+      value = sprintf("$%.2f", expenses),
       subtitle = "Total Expenses",
       icon = icon("arrow-down"),
       color = "red"
@@ -451,7 +447,7 @@ server <- function(input, output, session) {
     net <- if(nrow(data) > 0) sum(data$amount, na.rm = TRUE) else 0
     
     valueBox(
-      value = sprintf("$%,.2f", net),
+      value = sprintf("$%.2f", net),
       subtitle = "Net Amount",
       icon = icon("balance-scale"),
       color = if(net >= 0) "blue" else "yellow"
@@ -472,7 +468,7 @@ server <- function(input, output, session) {
     
     infoBox(
       "This Month Income",
-      sprintf("$%,.2f", income),
+      sprintf("$%.2f", income),
       icon = icon("calendar-plus"),
       color = "green",
       fill = TRUE
@@ -492,7 +488,7 @@ server <- function(input, output, session) {
     
     infoBox(
       "This Month Expenses",
-      sprintf("$%,.2f", expenses),
+      sprintf("$%.2f", expenses),
       icon = icon("calendar-minus"),
       color = "red",
       fill = TRUE
@@ -640,19 +636,20 @@ server <- function(input, output, session) {
     }
     
     tryCatch({
-      # Insert into database
-      query <- "INSERT INTO budget_transactions (date, description, amount, vendor, budget_category, buyer, notes) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)"
+      # Use direct value insertion for better compatibility
+      query <- sprintf("
+      INSERT INTO budget_transactions (date, description, amount, vendor, budget_category, buyer, notes) 
+      VALUES ('%s', '%s', %f, %s, '%s', '%s', %s)",
+                       as.character(input$entry_date),
+                       gsub("'", "''", input$description),  # Escape single quotes
+                       amount,
+                       ifelse(is.null(input$vendor) || input$vendor == "", "NULL", paste0("'", gsub("'", "''", input$vendor), "'")),
+                       gsub("'", "''", input$budget_category),
+                       gsub("'", "''", input$buyer),
+                       ifelse(is.null(input$notes) || input$notes == "", "NULL", paste0("'", gsub("'", "''", input$notes), "'"))
+      )
       
-      dbExecute(pool, query, params = list(
-        as.character(input$entry_date),
-        input$description,
-        amount,
-        ifelse(is.null(input$vendor) || input$vendor == "", NA, input$vendor),
-        input$budget_category,
-        input$buyer,
-        ifelse(is.null(input$notes) || input$notes == "", NA, input$notes)
-      ))
+      dbExecute(pool, query)
       
       showNotification("Entry added successfully!", type = "success", duration = 3)
       
@@ -667,26 +664,8 @@ server <- function(input, output, session) {
       
     }, error = function(e) {
       showNotification(paste("Error adding entry:", e$message), type = "error")
+      cat("Insert Error:", e$message, "\n")
     })
-  })
-  
-  # Delete selected entries
-  observeEvent(input$delete_selected, {
-    selected_rows <- input$budget_table_rows_selected
-    
-    if (length(selected_rows) == 0) {
-      showNotification("No rows selected", type = "warning")
-      return()
-    }
-    
-    showModal(modalDialog(
-      title = "Confirm Deletion",
-      paste("Are you sure you want to delete", length(selected_rows), "entries?"),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("confirm_delete", "Delete", class = "btn-danger")
-      )
-    ))
   })
   
   # Confirm deletion
@@ -698,11 +677,11 @@ server <- function(input, output, session) {
       selected_ids <- data$id[selected_rows]
       
       tryCatch({
-        # Delete from database
-        placeholders <- paste0(rep("?", length(selected_ids)), collapse = ",")
-        query <- paste0("DELETE FROM budget_transactions WHERE id IN (", placeholders, ")")
+        # Use direct value insertion for delete
+        id_list <- paste(selected_ids, collapse = ",")
+        query <- paste0("DELETE FROM budget_transactions WHERE id IN (", id_list, ")")
         
-        dbExecute(pool, query, params = as.list(selected_ids))
+        dbExecute(pool, query)
         
         showNotification(paste("Deleted", length(selected_ids), "entries"), type = "success")
         
@@ -713,6 +692,7 @@ server <- function(input, output, session) {
         
       }, error = function(e) {
         showNotification(paste("Error deleting entries:", e$message), type = "error")
+        cat("Delete Error:", e$message, "\n")
       })
     }
   })
