@@ -357,65 +357,63 @@ server <- function(input, output, session) {
   )
   
   # Fetch budget data from database
-budget_data <- reactive({
-  values$data_trigger
-  
-  tryCatch({
-    # Build query with direct value insertion instead of parameters
-    query <- "SELECT * FROM budget_transactions WHERE 1=1"
+  budget_data <- reactive({
+    values$data_trigger
     
-    # Date range filter
-    if (!is.null(input$date_range) && length(input$date_range) == 2) {
-      start_date <- as.character(input$date_range[1])
-      end_date <- as.character(input$date_range[2])
-      query <- paste0(query, " AND date >= '", start_date, "' AND date <= '", end_date, "'")
-    }
-    
-    # Category filter
-    if (!"All" %in% input$filter_category && length(input$filter_category) > 0) {
-      # Escape single quotes and wrap in quotes
-      categories <- paste0("'", gsub("'", "''", input$filter_category), "'", collapse = ",")
-      query <- paste0(query, " AND budget_category IN (", categories, ")")
-    }
-    
-    # Buyer filter
-    if (!"All" %in% input$filter_buyer && length(input$filter_buyer) > 0) {
-      # Escape single quotes and wrap in quotes
-      buyers <- paste0("'", gsub("'", "''", input$filter_buyer), "'", collapse = ",")
-      query <- paste0(query, " AND buyer IN (", buyers, ")")
-    }
-    
-    query <- paste0(query, " ORDER BY date DESC, id DESC")
-    
-    # Execute query without parameters
-    result <- dbGetQuery(pool, query)
-    
-    # Convert to tibble and parse dates
-    if (nrow(result) > 0) {
-      result %>%
-        as_tibble() %>%
-        mutate(
-          date = as.Date(date),
-          amount = as.numeric(amount)
-        )
-    } else {
+    tryCatch({
+      # Build query with direct value insertion instead of parameters
+      query <- "SELECT * FROM budget_transactions WHERE 1=1"
+      
+      # Date range filter
+      if (!is.null(input$date_range) && length(input$date_range) == 2) {
+        start_date <- as.character(input$date_range[1])
+        end_date <- as.character(input$date_range[2])
+        query <- paste0(query, " AND date >= '", start_date, "' AND date <= '", end_date, "'")
+      }
+      
+      # Category filter
+      if (!"All" %in% input$filter_category && length(input$filter_category) > 0) {
+        categories <- paste0("'", gsub("'", "''", input$filter_category), "'", collapse = ",")
+        query <- paste0(query, " AND budget_category IN (", categories, ")")
+      }
+      
+      # Buyer filter
+      if (!"All" %in% input$filter_buyer && length(input$filter_buyer) > 0) {
+        buyers <- paste0("'", gsub("'", "''", input$filter_buyer), "'", collapse = ",")
+        query <- paste0(query, " AND buyer IN (", buyers, ")")
+      }
+      
+      query <- paste0(query, " ORDER BY date DESC, id DESC")
+      
+      # Execute query
+      result <- dbGetQuery(pool, query)
+      
+      # Convert to tibble and parse dates
+      if (nrow(result) > 0) {
+        result %>%
+          as_tibble() %>%
+          mutate(
+            date = as.Date(date),
+            amount = as.numeric(amount)
+          )
+      } else {
+        tibble()
+      }
+      
+    }, error = function(e) {
+      showNotification(paste("Error fetching data:", e$message), type = "error")
+      cat("SQL Error:", e$message, "\n")
       tibble()
-    }
-    
-  }, error = function(e) {
-    showNotification(paste("Error fetching data:", e$message), type = "error")
-    # Also print to console for debugging
-    cat("SQL Error:", e$message, "\n")
-    cat("Last query attempted:", query, "\n")
-    tibble()
+    })
   })
-})
+  
   
   # Refresh data
   observeEvent(input$refresh_data, {
     values$data_trigger <- values$data_trigger + 1
-    showNotification("Data refreshed!", type = "info", duration = 2)
+    showNotification("Data refreshed!", type = "message", duration = 2)
   })
+  
   
   # Value boxes
   output$total_income <- renderValueBox({
@@ -636,36 +634,69 @@ budget_data <- reactive({
     }
     
     tryCatch({
-      # Use direct value insertion for better compatibility
-      query <- sprintf("
-      INSERT INTO budget_transactions (date, description, amount, vendor, budget_category, buyer, notes) 
-      VALUES ('%s', '%s', %f, %s, '%s', '%s', %s)",
-                       as.character(input$entry_date),
-                       gsub("'", "''", input$description),  # Escape single quotes
-                       amount,
-                       ifelse(is.null(input$vendor) || input$vendor == "", "NULL", paste0("'", gsub("'", "''", input$vendor), "'")),
-                       gsub("'", "''", input$budget_category),
-                       gsub("'", "''", input$buyer),
-                       ifelse(is.null(input$notes) || input$notes == "", "NULL", paste0("'", gsub("'", "''", input$notes), "'"))
-      )
+      # Use proper parameterized query for MariaDB/MySQL
+      # Prepare the values
+      entry_date <- as.character(input$entry_date)
+      description <- input$description
+      vendor_val <- if(is.null(input$vendor) || input$vendor == "") NA else input$vendor
+      budget_category <- input$budget_category
+      buyer <- input$buyer
+      notes_val <- if(is.null(input$notes) || input$notes == "") NA else input$notes
       
-      dbExecute(pool, query)
+      # Use dbExecute with proper parameter binding
+      query <- "INSERT INTO budget_transactions (date, description, amount, vendor, budget_category, buyer, notes) VALUES (?, ?, ?, ?, ?, ?, ?)"
       
-      showNotification("Entry added successfully!", type = "success", duration = 3)
+      # Execute with parameters
+      result <- dbExecute(pool, query, params = list(
+        entry_date,
+        description,
+        amount,
+        vendor_val,
+        budget_category,
+        buyer,
+        notes_val
+      ))
       
-      # Clear form
-      updateTextInput(session, "description", value = "")
-      updateNumericInput(session, "amount", value = 0)
-      updateTextInput(session, "vendor", value = "")
-      updateTextAreaInput(session, "notes", value = "")
-      
-      # Refresh data
-      values$data_trigger <- values$data_trigger + 1
+      if (result > 0) {
+        showNotification("Entry added successfully!", type = "message", duration = 3)
+        
+        # Clear form
+        updateTextInput(session, "description", value = "")
+        updateNumericInput(session, "amount", value = 0)
+        updateTextInput(session, "vendor", value = "")
+        updateTextAreaInput(session, "notes", value = "")
+        
+        # Refresh data
+        values$data_trigger <- values$data_trigger + 1
+      } else {
+        showNotification("Entry was not added. Please try again.", type = "warning")
+      }
       
     }, error = function(e) {
+      # Use only valid notification types: "default", "message", "warning", "error"
       showNotification(paste("Error adding entry:", e$message), type = "error")
-      cat("Insert Error:", e$message, "\n")
+      cat("Insert Error Details:", e$message, "\n")
+      cat("Entry details - Date:", input$entry_date, "Description:", input$description, "Amount:", amount, "\n")
     })
+  })
+  
+  # delete selected
+  observeEvent(input$delete_selected, {
+    selected_rows <- input$budget_table_rows_selected
+    
+    if (length(selected_rows) == 0) {
+      showNotification("No rows selected", type = "warning")
+      return()
+    }
+    
+    showModal(modalDialog(
+      title = "Confirm Deletion",
+      paste("Are you sure you want to delete", length(selected_rows), "entries?"),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_delete", "Delete", class = "btn-danger")
+      )
+    ))
   })
   
   # Confirm deletion
@@ -677,16 +708,19 @@ budget_data <- reactive({
       selected_ids <- data$id[selected_rows]
       
       tryCatch({
-        # Use direct value insertion for delete
-        id_list <- paste(selected_ids, collapse = ",")
-        query <- paste0("DELETE FROM budget_transactions WHERE id IN (", id_list, ")")
+        # Use parameterized query for deletion
+        placeholders <- paste0(rep("?", length(selected_ids)), collapse = ",")
+        query <- paste0("DELETE FROM budget_transactions WHERE id IN (", placeholders, ")")
         
-        dbExecute(pool, query)
+        result <- dbExecute(pool, query, params = as.list(selected_ids))
         
-        showNotification(paste("Deleted", length(selected_ids), "entries"), type = "success")
-        
-        # Refresh data
-        values$data_trigger <- values$data_trigger + 1
+        if (result > 0) {
+          showNotification(paste("Deleted", result, "entries"), type = "message")
+          # Refresh data
+          values$data_trigger <- values$data_trigger + 1
+        } else {
+          showNotification("No entries were deleted", type = "warning")
+        }
         
         removeModal()
         
