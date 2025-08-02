@@ -26,10 +26,10 @@ BUYERS <- c("John", "Kathryn", "Elisa", "Rebekah", "Sarah", "Sophia")
 pool <- dbPool(
   drv = RMySQL::MySQL(),
   dbname = Sys.getenv("DB_NAME"),
-  host = Sys.getenv("DB_HOST"),
+  host = Sys.getenv("DB_HOST", 'mysql.bbfarm.org'),
   username = Sys.getenv("DB_USER"),
   password = Sys.getenv("DB_PASSWORD"),
-  port = Sys.getenv("DB_PORT")
+  port = as.integer(Sys.getenv("DB_PORT", 3307))
 )
 
 # Ensure connection closes when app stops
@@ -41,7 +41,7 @@ onStop(function() {
 initialize_database <- function() {
   tryCatch({
     dbExecute(pool, "
-      CREATE TABLE IF NOT EXISTS budget_entries (
+      CREATE TABLE IF NOT EXISTS budget_transactions (
         id INT AUTO_INCREMENT PRIMARY KEY,
         date DATE NOT NULL,
         description VARCHAR(255) NOT NULL,
@@ -65,7 +65,7 @@ db_initialized <- initialize_database()
 
 # UI Definition
 ui <- dashboardPage(
-  dashboardHeader(title = "Family Budget Tracker"),
+  dashboardHeader(title = "Budget Tracker"),
   
   dashboardSidebar(
     sidebarMenu(
