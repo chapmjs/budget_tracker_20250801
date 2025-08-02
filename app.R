@@ -346,7 +346,7 @@ server <- function(input, output, session) {
     
     tryCatch({
       # Build query with filters
-      query <- "SELECT * FROM budget_entries WHERE 1=1"
+      query <- "SELECT * FROM budget_transactions WHERE 1=1"
       params <- list()
       
       # Date range filter
@@ -625,7 +625,7 @@ server <- function(input, output, session) {
     
     tryCatch({
       # Insert into database
-      query <- "INSERT INTO budget_entries (date, description, amount, vendor, budget_category, buyer, notes) 
+      query <- "INSERT INTO budget_transactions (date, description, amount, vendor, budget_category, buyer, notes) 
                 VALUES (?, ?, ?, ?, ?, ?, ?)"
       
       dbExecute(pool, query, params = list(
@@ -684,7 +684,7 @@ server <- function(input, output, session) {
       tryCatch({
         # Delete from database
         placeholders <- paste0(rep("?", length(selected_ids)), collapse = ",")
-        query <- paste0("DELETE FROM budget_entries WHERE id IN (", placeholders, ")")
+        query <- paste0("DELETE FROM budget_transactions WHERE id IN (", placeholders, ")")
         
         dbExecute(pool, query, params = as.list(selected_ids))
         
