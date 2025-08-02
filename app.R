@@ -345,18 +345,6 @@ ui <- dashboardPage(
 # Server Logic
 server <- function(input, output, session) {
   
-  # Add this temporarily to your server function to debug
-  output$env_debug <- renderText({
-    paste(
-      "DB_NAME:", Sys.getenv("DB_NAME"),
-      "DB_HOST:", Sys.getenv("DB_HOST"), 
-      "DB_USER:", Sys.getenv("DB_USER"),
-      "DB_PASSWORD:", if(Sys.getenv("DB_PASSWORD") != "") "SET" else "NOT SET",
-      "DB_PORT:", Sys.getenv("DB_PORT"),
-      sep = "\n"
-    )
-  })
-  
   # Check database connection
   output$db_connected <- reactive({
     db_initialized
