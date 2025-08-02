@@ -26,10 +26,10 @@ BUYERS <- c("John", "Kathryn", "Elisa", "Rebekah", "Sarah", "Sophia")
 pool <- dbPool(
   drv = RMySQL::MySQL(),
   dbname = Sys.getenv("DB_NAME"),
-  host = Sys.getenv("DB_HOST", 'mysql.bbfarm.org'),
+  host = Sys.getenv("DB_HOST"),
   username = Sys.getenv("DB_USER"),
   password = Sys.getenv("DB_PASSWORD"),
-  port = as.integer(Sys.getenv("DB_PORT", 3307))
+  port = as.integer(Sys.getenv("DB_PORT"))
 )
 
 # Ensure connection closes when app stops
