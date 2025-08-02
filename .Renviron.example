@@ -1,0 +1,6 @@
+# .Renviron.example
+DB_HOST=mysql.bbfarm.org
+DB_USER=your_username_here
+DB_PASSWORD=your_password_here
+DB_NAME=your_database_here
+DB_PORT=3306
